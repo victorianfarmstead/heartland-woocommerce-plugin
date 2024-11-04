@@ -193,15 +193,41 @@ class WC_Gateway_SecureSubmit extends WC_Payment_Gateway
 
     public function process_payment($orderId)
     {
-        // Define the minimum order amount
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'transaction_attempts';
+
+        // Define IP and rate limiting settings
+        $ip_address = $_SERVER['REMOTE_ADDR'];
+        $max_attempts = 3; // Maximum allowed attempts within time window
+        $time_window = '5 MINUTE'; // Time window for attempts (e.g., 5 minutes)
+
+        // Count attempts from the IP address in the past time window
+        $attempt_count = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COUNT(*) FROM $table_name WHERE ip_address = %s AND attempt_time > (NOW() - INTERVAL $time_window)",
+                $ip_address
+            )
+        );
+
+        // Block if attempts exceed max allowed within the time window
+        if ($attempt_count >= $max_attempts) {
+            wc_add_notice('Too many payment attempts from your IP address. Please try again later.', 'error');
+            return array(
+                'result'   => 'failure',
+                'redirect' => ''
+            );
+        }
+
+        // Log the IP address and attempt timestamp
+        $wpdb->insert($table_name, array(
+            'ip_address' => $ip_address,
+            'attempt_time' => current_time('mysql')
+        ));
+
+        // Continue with the minimum amount check and payment authorization
         $minimum_order_amount = 5.00;
-    
-        // Get the order total
         $order_total = WC()->cart->total;
-    
-        // Check if the order total is less than the minimum amount
         if ($order_total < $minimum_order_amount) {
-            // Add an error notice for the customer
             wc_add_notice(
                 sprintf(
                     'The minimum order amount for credit card payments is %s. Your current order total is %s.',
@@ -210,19 +236,16 @@ class WC_Gateway_SecureSubmit extends WC_Payment_Gateway
                 ),
                 'error'
             );
-    
-            // Return an error to stop the payment process
             return array(
                 'result'   => 'failure',
                 'redirect' => ''
             );
         }
-    
-        // Continue with payment authorization and tokenization
+
         if (!empty($this->app_key) && !empty($this->app_id)) {
             $this->tryTransOptimization($orderId);
         }
-    
+
         return $this->payment->call($orderId);
     }
 
