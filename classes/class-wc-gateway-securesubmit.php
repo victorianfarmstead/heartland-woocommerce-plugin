@@ -193,10 +193,39 @@ class WC_Gateway_SecureSubmit extends WC_Payment_Gateway
 
     public function process_payment($orderId)
     {
-        if (!empty($this->app_key) && !empty($this->app_id)) $this->tryTransOptimization($orderId);
-        
+        // Define the minimum order amount
+        $minimum_order_amount = 5.00;
+    
+        // Get the order total
+        $order_total = WC()->cart->total;
+    
+        // Check if the order total is less than the minimum amount
+        if ($order_total < $minimum_order_amount) {
+            // Add an error notice for the customer
+            wc_add_notice(
+                sprintf(
+                    'The minimum order amount for credit card payments is %s. Your current order total is %s.',
+                    wc_price($minimum_order_amount),
+                    wc_price($order_total)
+                ),
+                'error'
+            );
+    
+            // Return an error to stop the payment process
+            return array(
+                'result'   => 'failure',
+                'redirect' => ''
+            );
+        }
+    
+        // Continue with payment authorization and tokenization
+        if (!empty($this->app_key) && !empty($this->app_id)) {
+            $this->tryTransOptimization($orderId);
+        }
+    
         return $this->payment->call($orderId);
     }
+
 
     public function process_capture($order)
     {
